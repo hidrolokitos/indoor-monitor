@@ -4,56 +4,165 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Monitor Indoor</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/animejs/3.2.1/anime.min.js"></script>
     <style>
         body {
             font-family: Arial, sans-serif;
             text-align: center;
-            background-color: #f4f4f4;
+            background-color: #1e1e1e;
+            color: white;
             padding: 20px;
         }
         .container {
-            background: white;
+            background: #333;
             padding: 20px;
             border-radius: 10px;
-            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            box-shadow: 0 0 15px rgba(255, 255, 255, 0.2);
             display: inline-block;
+            width: 90%;
+            max-width: 900px;
+            opacity: 0;
         }
         h1 {
-            color: #333;
+            color: #ffcc00;
         }
         .data {
             font-size: 1.5em;
             margin: 10px 0;
         }
+        .timestamp {
+            font-size: 0.9em;
+            color: #bbb;
+        }
+        .error {
+            color: red;
+            font-weight: bold;
+        }
+        canvas {
+            margin-top: 20px;
+            background: white;
+            border-radius: 10px;
+        }
     </style>
 </head>
 <body>
-    <div class="container">
+    <div class="container" id="container">
         <h1>Monitor de Indoor</h1>
         <p class="data">Temperatura: <span id="temp">-</span> °C</p>
         <p class="data">Humedad: <span id="hum">-</span> %</p>
+        <p class="data">Temperatura Exterior: <span id="temp_ext">-</span> °C</p>
+        <p class="data">Humedad Exterior: <span id="hum_ext">-</span> %</p>
+        <p class="timestamp">Última actualización: <span id="timestamp">-</span></p>
+        <p id="error" class="error"></p>
+        <canvas id="chart"></canvas>
+        <canvas id="humidityChart"></canvas>
     </div>
 
     <script>
-        const channelID = 2589201;
-        const apiURL = `https://api.thingspeak.com/channels/${channelID}/feeds/last.json`;
+        anime({
+            targets: '#container',
+            opacity: [0, 1],
+            translateY: [-50, 0],
+            duration: 1500,
+            easing: 'easeOutQuad'
+        });
 
+        const channelID = 2589201;
+        const apiURL = `https://api.thingspeak.com/channels/${channelID}/feeds.json?results=60`;
+        const weatherAPI = `https://api.open-meteo.com/v1/forecast?latitude=-32.95&longitude=-60.65&hourly=temperature_2m,relative_humidity_2m&timezone=America/Argentina/Cordoba`;
+        
+        let ctx = document.getElementById('chart').getContext('2d');
+        let humidityCtx = document.getElementById('humidityChart').getContext('2d');
+        
+        let chart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Temperatura Indoor', data: [], borderColor: 'red', fill: false },
+                    { label: 'Temperatura Exterior', data: [], borderColor: 'yellow', fill: false }
+                ]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: false } } }
+        });
+        
+        let humidityChart = new Chart(humidityCtx, {
+            type: 'line',
+            data: {
+                labels: [],
+                datasets: [
+                    { label: 'Humedad Indoor', data: [], borderColor: 'blue', fill: false },
+                    { label: 'Humedad Exterior', data: [], borderColor: 'green', fill: false }
+                ]
+            },
+            options: { responsive: true, scales: { y: { beginAtZero: false } } }
+        });
+        
         async function fetchData() {
             try {
                 let response = await fetch(apiURL);
                 let data = await response.json();
-                
-                if (data && data.field1 && data.field2) {
-                    document.getElementById("temp").textContent = parseFloat(data.field1).toFixed(1);
-                    document.getElementById("hum").textContent = parseFloat(data.field2).toFixed(1);
+                if (data.feeds.length > 0) {
+                    chart.data.labels = [];
+                    chart.data.datasets[0].data = [];
+                    chart.data.datasets[1].data = [];
+                    humidityChart.data.labels = [];
+                    humidityChart.data.datasets[0].data = [];
+                    humidityChart.data.datasets[1].data = [];
+                    
+                    data.feeds.forEach(feed => {
+                        let time = new Date(feed.created_at).toLocaleTimeString();
+                        let temp = parseFloat(feed.field1);
+                        let hum = parseFloat(feed.field2);
+                        
+                        chart.data.labels.push(time);
+                        chart.data.datasets[0].data.push(temp);
+                        humidityChart.data.labels.push(time);
+                        humidityChart.data.datasets[0].data.push(hum);
+                    });
+                    
+                    let latest = data.feeds[data.feeds.length - 1];
+                    document.getElementById("temp").textContent = parseFloat(latest.field1).toFixed(1);
+                    document.getElementById("hum").textContent = parseFloat(latest.field2).toFixed(1);
+                    document.getElementById("timestamp").textContent = new Date(latest.created_at).toLocaleString();
+                    document.getElementById("error").textContent = "";
+                    
+                    chart.update();
+                    humidityChart.update();
                 }
             } catch (error) {
                 console.error("Error al obtener datos", error);
+                document.getElementById("error").textContent = "Error al obtener datos";
+            }
+        }
+        
+        async function fetchWeather() {
+            try {
+                let response = await fetch(weatherAPI);
+                let data = await response.json();
+                if (data.hourly && data.hourly.relative_humidity_2m && data.hourly.temperature_2m) {
+                    let now = new Date();
+                    let hourIndex = now.getHours();
+                    
+                    document.getElementById("hum_ext").textContent = data.hourly.relative_humidity_2m[hourIndex];
+                    document.getElementById("temp_ext").textContent = data.hourly.temperature_2m[hourIndex];
+                    
+                    chart.data.datasets[1].data.push(data.hourly.temperature_2m[hourIndex]);
+                    humidityChart.data.datasets[1].data.push(data.hourly.relative_humidity_2m[hourIndex]);
+                    chart.update();
+                    humidityChart.update();
+                }
+            } catch (error) {
+                console.error("Error al obtener datos del clima", error);
+                document.getElementById("hum_ext").textContent = '-';
             }
         }
         
         fetchData();
-        setInterval(fetchData, 60000); // Actualiza cada 60 segundos
+        fetchWeather();
+        setInterval(fetchData, 60000);
+        setInterval(fetchWeather, 60000);
     </script>
 </body>
 </html>
