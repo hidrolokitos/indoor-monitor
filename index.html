@@ -1,1 +1,59 @@
-d
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monitor Indoor</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            text-align: center;
+            background-color: #f4f4f4;
+            padding: 20px;
+        }
+        .container {
+            background: white;
+            padding: 20px;
+            border-radius: 10px;
+            box-shadow: 0 0 10px rgba(0, 0, 0, 0.1);
+            display: inline-block;
+        }
+        h1 {
+            color: #333;
+        }
+        .data {
+            font-size: 1.5em;
+            margin: 10px 0;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Monitor de Indoor</h1>
+        <p class="data">Temperatura: <span id="temp">-</span> °C</p>
+        <p class="data">Humedad: <span id="hum">-</span> %</p>
+    </div>
+
+    <script>
+        const channelID = 2589201;
+        const apiURL = `https://api.thingspeak.com/channels/${channelID}/feeds/last.json`;
+
+        async function fetchData() {
+            try {
+                let response = await fetch(apiURL);
+                let data = await response.json();
+                
+                if (data && data.field1 && data.field2) {
+                    document.getElementById("temp").textContent = parseFloat(data.field1).toFixed(1);
+                    document.getElementById("hum").textContent = parseFloat(data.field2).toFixed(1);
+                }
+            } catch (error) {
+                console.error("Error al obtener datos", error);
+            }
+        }
+        
+        fetchData();
+        setInterval(fetchData, 60000); // Actualiza cada 60 segundos
+    </script>
+</body>
+</html>
